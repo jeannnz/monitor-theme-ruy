@@ -1,0 +1,278 @@
+@import "tailwindcss" source(none);
+@source "../index.html";
+@source "../src";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================================
+ * Vibe — SaaS Dashboard & Chart UI Kit Design Tokens
+ * Global variables for Light & Dark modes + re-themeable Blue / Cyan / Teal tokens
+ * ============================================================================ */
+:root {
+  --radius: 0.875rem;
+
+  /* Light Mode Surfaces (Vibe Daylight Dashboard) */
+  --background: #f4f7fb;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --card-subtle: #f8fafc;
+  --sidebar: #ffffff;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #1e293b;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #eff6ff;
+  --accent-foreground: #1d4ed8;
+  --destructive: #ef4444;
+  --border: #e5eaf2;
+  --ring: #3b82f6;
+
+  /* Vibe Signature Palette: Blue, Cyan, Teal, Navy */
+  --vibe-blue: #2563eb;
+  --vibe-blue-soft: #60a5fa;
+  --vibe-cyan: #06b6d4;
+  --vibe-teal: #10b981;
+  --vibe-navy: #0f172a;
+  --vibe-amber: #f59e0b;
+  --vibe-rose: #ef4444;
+
+  /* Chart Series Tokens */
+  --chart-1: #2563eb;
+  --chart-2: #06b6d4;
+  --chart-3: #10b981;
+  --chart-4: #6366f1;
+  --chart-5: #f59e0b;
+
+  /* Status & Semantic Tokens */
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --online: #10b981;
+  --offline: #94a3b8;
+  --track: #eef2f7;
+
+  /* 3D Globe & Dotted Map Tokens (Light Mode) */
+  --globe-ocean-top: #f8faff;
+  --globe-ocean-mid: #edf4ff;
+  --globe-ocean-bottom: #dce8fc;
+  --globe-land: #cbd8ee;
+  --globe-land-stroke: #ffffff;
+  --globe-active: var(--vibe-blue);
+  --globe-active-focused: var(--vibe-cyan);
+  --globe-active-stroke: #ffffff;
+  --globe-graticule: rgba(100, 116, 139, 0.24);
+  --globe-graticule-top: rgba(255, 255, 255, 0.42);
+  --globe-rim: rgba(37, 99, 235, 0.26);
+  --globe-halo: rgba(37, 99, 235, 0.08);
+  --globe-arc: var(--vibe-blue);
+  --map-dot-base: #cbd5e1;
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Dark Mode Surfaces (Vibe Night-Shift Dashboard) */
+  --background: #080d1a;
+  --foreground: #f8fafc;
+  --card: #101829;
+  --card-foreground: #f8fafc;
+  --card-subtle: #152036;
+  --sidebar: #0c1322;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #19243b;
+  --secondary-foreground: #e2e8f0;
+  --muted: #182238;
+  --muted-foreground: #94a3b8;
+  --accent: #172544;
+  --accent-foreground: #60a5fa;
+  --destructive: #f87171;
+  --border: #1e2b45;
+  --ring: #3b82f6;
+
+  /* Vibe Dark Palette */
+  --vibe-blue: #3b82f6;
+  --vibe-blue-soft: #93c5fd;
+  --vibe-cyan: #22d3ee;
+  --vibe-teal: #34d399;
+  --vibe-navy: #e2e8f0;
+  --vibe-amber: #fbbf24;
+  --vibe-rose: #f87171;
+
+  --chart-1: #3b82f6;
+  --chart-2: #22d3ee;
+  --chart-3: #34d399;
+  --chart-4: #818cf8;
+  --chart-5: #fbbf24;
+
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --online: #34d399;
+  --offline: #64748b;
+  --track: #1b2740;
+
+  /* 3D Globe & Dotted Map High-Contrast Tokens (Dark Mode — Night-Shift Clarity) */
+  --globe-ocean-top: #102042;
+  --globe-ocean-mid: #091328;
+  --globe-ocean-bottom: #050a16;
+  --globe-land: #2f4b80;
+  --globe-land-stroke: rgba(147, 197, 253, 0.48);
+  --globe-active: #3b82f6;
+  --globe-active-focused: #38bdf8;
+  --globe-active-stroke: #e0f2fe;
+  --globe-graticule: rgba(125, 168, 235, 0.28);
+  --globe-graticule-top: rgba(147, 197, 253, 0.22);
+  --globe-rim: rgba(96, 165, 250, 0.58);
+  --globe-halo: rgba(56, 189, 248, 0.16);
+  --globe-arc: #38bdf8;
+  --map-dot-base: #334e82;
+}
+
+/* Re-brandable Accent Palettes via data-accent attribute */
+:root[data-accent="cyan"] {
+  --primary: #0891b2;
+  --ring: #06b6d4;
+  --accent: #ecfeff;
+  --accent-foreground: #0e7490;
+  --vibe-blue: #0891b2;
+  --vibe-blue-soft: #22d3ee;
+  --vibe-cyan: #2563eb;
+  --chart-1: #0891b2;
+  --chart-2: #2563eb;
+}
+.dark[data-accent="cyan"] {
+  --primary: #06b6d4;
+  --ring: #22d3ee;
+  --accent: #112a38;
+  --accent-foreground: #22d3ee;
+  --vibe-blue: #22d3ee;
+  --vibe-blue-soft: #67e8f9;
+  --vibe-cyan: #3b82f6;
+  --chart-1: #22d3ee;
+  --chart-2: #3b82f6;
+}
+
+:root[data-accent="teal"] {
+  --primary: #0d9488;
+  --ring: #14b8a6;
+  --accent: #f0fdfa;
+  --accent-foreground: #0f766e;
+  --vibe-blue: #0d9488;
+  --vibe-blue-soft: #2dd4bf;
+  --vibe-cyan: #0ea5e9;
+  --chart-1: #0d9488;
+  --chart-2: #0ea5e9;
+}
+.dark[data-accent="teal"] {
+  --primary: #14b8a6;
+  --ring: #2dd4bf;
+  --accent: #112c2e;
+  --accent-foreground: #2dd4bf;
+  --vibe-blue: #2dd4bf;
+  --vibe-blue-soft: #5eead4;
+  --vibe-cyan: #38bdf8;
+  --chart-1: #2dd4bf;
+  --chart-2: #38bdf8;
+}
+
+:root[data-accent="indigo"] {
+  --primary: #4f46e5;
+  --ring: #6366f1;
+  --accent: #eef2ff;
+  --accent-foreground: #4338ca;
+  --vibe-blue: #4f46e5;
+  --vibe-blue-soft: #818cf8;
+  --vibe-cyan: #06b6d4;
+  --chart-1: #4f46e5;
+  --chart-2: #06b6d4;
+}
+.dark[data-accent="indigo"] {
+  --primary: #6366f1;
+  --ring: #818cf8;
+  --accent: #1c1f42;
+  --accent-foreground: #818cf8;
+  --vibe-blue: #818cf8;
+  --vibe-blue-soft: #a5b4fc;
+  --vibe-cyan: #22d3ee;
+  --chart-1: #818cf8;
+  --chart-2: #22d3ee;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 3px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-card-subtle: var(--card-subtle);
+  --color-sidebar: var(--sidebar);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-online: var(--online);
+  --color-offline: var(--offline);
+  --color-track: var(--track);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    scrollbar-gutter: stable;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Tabular figures keep live numbers from shifting as they update */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Vibe Card Elevation */
+.vibe-card {
+  background-color: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.03), 0 4px 16px -2px rgb(15 23 42 / 0.03);
+}
+
+.dark .vibe-card {
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.25), 0 8px 24px -4px rgb(0 0 0 / 0.25);
+}
+
+/* Diagonal hatch pattern for free capacity in Vibe Storage bar */
+.vibe-hatch {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    rgb(148 163 184 / 0.35) 3px,
+    rgb(148 163 184 / 0.35) 5px
+  );
+}

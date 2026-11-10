@@ -1,0 +1,140 @@
+{
+  "name": "Vibe",
+  "short": "vibe",
+  "description": "高密度多维度趋势矩阵探针监控主题",
+  "version": "1.0.0",
+  "author": "jeannnz",
+  "url": "https://github.com/jeannnz/monitor-theme-vibe",
+  "config": [
+    {
+      "type": "title",
+      "label": "通用与外观"
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "label": "默认语言",
+      "default": "zh",
+      "options": [
+        { "value": "zh", "label": "简体中文" },
+        { "value": "en", "label": "English" },
+        { "value": "auto", "label": "跟随浏览器" }
+      ],
+      "help": "访客首次打开时的默认显示语言，可随时在右侧悬浮栏切换"
+    },
+    {
+      "key": "subtitle",
+      "type": "string",
+      "label": "站点副标题",
+      "default": "",
+      "help": "显示在页脚品牌区域的副标题，留空不显示"
+    },
+    {
+      "key": "notice",
+      "type": "text",
+      "label": "站点公告",
+      "default": "",
+      "help": "显示在看板顶部的通知横幅，留空不显示"
+    },
+    {
+      "key": "accent_color",
+      "type": "select",
+      "label": "主题主色",
+      "default": "blue",
+      "options": [
+        { "value": "blue", "label": "经典电光蓝" },
+        { "value": "cyan", "label": "极光青蓝" },
+        { "value": "teal", "label": "翡翠青绿" },
+        { "value": "indigo", "label": "深海靛蓝" }
+      ],
+      "help": "控制图表、刻度环、徽章与高亮按钮的全局强调色"
+    },
+    {
+      "key": "default_theme",
+      "type": "select",
+      "label": "默认明暗模式",
+      "default": "system",
+      "options": [
+        { "value": "system", "label": "跟随系统" },
+        { "value": "light", "label": "浅色模式" },
+        { "value": "dark", "label": "深色模式" }
+      ],
+      "help": "访客首次打开时的默认配色模式，可随时在右侧悬浮栏切换"
+    },
+    {
+      "type": "title",
+      "label": "布局与视图"
+    },
+    {
+      "key": "default_view",
+      "type": "select",
+      "label": "默认节点视图",
+      "default": "grid",
+      "options": [
+        { "value": "grid", "label": "标准详情卡" },
+        { "value": "compact", "label": "高密紧凑卡" },
+        { "value": "table", "label": "数据明细表" }
+      ],
+      "help": "节点列表区域的默认展示形态"
+    },
+    {
+      "key": "columns",
+      "type": "number",
+      "label": "桌面端每行卡片数",
+      "default": 3,
+      "min": 2,
+      "max": 4,
+      "help": "大屏下详情卡片每行显示的列数（2–4 列）"
+    },
+    {
+      "type": "title",
+      "label": "顶部数据模块"
+    },
+    {
+      "key": "show_kpi",
+      "type": "boolean",
+      "label": "显示四宫格趋势矩阵",
+      "default": true,
+      "help": "展示在线率、CPU 负载、实时带宽与月度流量四宫格指标卡"
+    },
+    {
+      "key": "show_analytics",
+      "type": "boolean",
+      "label": "显示全球节点与集群状态",
+      "default": true,
+      "help": "展示 3D 全球节点分布与集群状态（健康度表盘 + 内存/硬盘/流量品字水位）"
+    },
+    {
+      "key": "map_style",
+      "type": "select",
+      "label": "全球节点默认视图",
+      "default": "globe",
+      "options": [
+        { "value": "globe", "label": "3D 地球仪" },
+        { "value": "dotted", "label": "点阵地图" }
+      ],
+      "help": "全球节点模块默认展示的地理可视化样式"
+    },
+    {
+      "key": "show_sparkline",
+      "type": "boolean",
+      "label": "节点卡片显示实时网速折线",
+      "default": true,
+      "help": "在每张服务器卡片底部绘制实时上下行吞吐微折线图"
+    },
+    {
+      "key": "show_billing",
+      "type": "boolean",
+      "label": "显示资费与续费周期",
+      "default": true,
+      "help": "在卡片、表格与账单视图中展示节点费用、周期与到期倒计时"
+    },
+    {
+      "key": "footer_text",
+      "type": "string",
+      "label": "页脚附加文案",
+      "default": "",
+      "help": "显示在页面底部的附加说明文字，留空不显示"
+    }
+  ]
+}
