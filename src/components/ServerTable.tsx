@@ -1,10 +1,11 @@
 import { useState } from "react"
-import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronRight } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronRight, Radio } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
-import { Country, deployed, Expiry, OsIcon } from "@/components/NodeCard"
-import type { Node } from "@/lib/api"
+import { Country, deployed, Expiry, OsIcon, PingHealthBadge } from "@/components/NodeCard"
+import { PING_PROBE_COLORS, VibePingSparkline } from "@/components/VibeCharts"
+import type { Node, NodePingSummary } from "@/lib/api"
 import {
   bytes,
   cpuName,
@@ -52,11 +53,15 @@ function MiniBar({ pct, label, tone = "blue" }: { pct: number | null; label: str
 function TableRowItem({
   node,
   showBilling,
+  showPing,
+  pingSummary,
   onOpen,
 }: {
   node: Node
   showBilling: boolean
-  onOpen: (id: number) => void
+  showPing: boolean
+  pingSummary?: NodePingSummary
+  onOpen: (id: number, tab?: "resources" | "latency") => void
 }) {
   const { lang, tr } = useI18n()
   const [expanded, setExpanded] = useState(false)
@@ -64,6 +69,7 @@ function TableRowItem({
   const down = sinceSeen(node)
   const usedTraffic = monthUsage(node)
   const trafficPct = node.traffic_limit > 0 ? percent(usedTraffic, node.traffic_limit) : null
+  const totalCols = 9 + (showBilling ? 1 : 0) + (showPing ? 1 : 0)
 
   return (
     <>
@@ -130,12 +136,52 @@ function TableRowItem({
               <ArrowDown className="size-3 text-[var(--vibe-blue)]" />
               {m ? rate(m.net_rx) : "—"}
             </div>
-            <div className=" flex items-center gap-1 text-[11px] text-muted-foreground">
+            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
               <ArrowUp className="size-3 text-[var(--vibe-cyan)]" />
               {m ? rate(m.net_tx) : "—"}
             </div>
           </div>
         </td>
+
+        {showPing && (
+          <td
+            className="hidden px-3 py-3 sm:table-cell"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen(node.id, "latency")
+            }}
+          >
+            {!deployed(node) ? (
+              <span className="text-xs text-muted-foreground">—</span>
+            ) : !pingSummary ? (
+              <div className="h-4 w-20 animate-pulse rounded bg-muted" />
+            ) : pingSummary.health === "empty" || pingSummary.probes.length === 0 ? (
+              <span className="text-[11px] text-muted-foreground">—</span>
+            ) : (
+              <div className="min-w-[126px] space-y-1">
+                <div className="flex items-center justify-between gap-1.5">
+                  <span
+                    className={cn(
+                      "tnum text-xs font-semibold",
+                      pingSummary.health === "critical"
+                        ? "text-rose-500"
+                        : pingSummary.health === "jitter"
+                          ? "text-amber-500"
+                          : "text-foreground",
+                    )}
+                  >
+                    {pingSummary.medianMs !== null ? `${pingSummary.medianMs} ms` : tr("超时", "Timeout")}
+                  </span>
+                  <PingHealthBadge summary={pingSummary} compact />
+                </div>
+                <VibePingSparkline
+                  probes={pingSummary.probes}
+                  height={16}
+                />
+              </div>
+            )}
+          </td>
+        )}
 
         <td className="px-3 py-3">
           <MiniBar
@@ -198,7 +244,7 @@ function TableRowItem({
 
       {expanded && (
         <tr className="bg-card-subtle/70">
-          <td colSpan={showBilling ? 10 : 9} className="px-4 py-3.5">
+          <td colSpan={totalCols} className="px-4 py-3.5">
             {deployed(node) ? (
               <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
                 <div className="space-y-1 rounded-xl bg-card p-3">
@@ -245,20 +291,48 @@ function TableRowItem({
 
                 <div className="flex flex-col justify-between rounded-xl bg-card p-3">
                   <div>
-                    <div className="text-[11px] font-medium text-muted-foreground">
-                      {tr("计费规则与历史图表", "Billing Rule & Charts")}
+                    <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+                      <span>{tr("网络探测与计费", "Ping & Billing")}</span>
+                      {showPing && pingSummary && pingSummary.probes.length > 0 && (
+                        <Radio className="size-3 text-[var(--vibe-blue)]" />
+                      )}
                     </div>
-                    <div className="tnum mt-0.5 text-muted-foreground">
-                      {tr("流量计费：", "Mode: ")}
-                      {trafficModeLabel(node.traffic_mode, lang)}
-                      {node.traffic_reset_day > 0
-                        ? tr(` · 每月 ${node.traffic_reset_day} 日重置`, ` · Resets Day ${node.traffic_reset_day}`)
-                        : ""}
-                    </div>
+                    {showPing && pingSummary && pingSummary.probes.length > 0 ? (
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {pingSummary.probes.map((p, idx) => (
+                          <span
+                            key={p.id}
+                            className="tnum inline-flex items-center gap-1 rounded bg-secondary/75 px-1.5 py-0.5 text-[10px]"
+                          >
+                            <span
+                              className="size-1.5 rounded-full"
+                              style={{ backgroundColor: PING_PROBE_COLORS[idx % PING_PROBE_COLORS.length] }}
+                            />
+                            <span className="text-muted-foreground">{p.name}</span>
+                            <span className="font-semibold text-foreground">
+                              {p.median !== null ? `${p.median}ms` : "—"}
+                            </span>
+                            {p.loss > 0 && (
+                              <span className="text-rose-500">
+                                {p.loss < 1 ? "<1%" : `${Math.round(p.loss)}%`}
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="tnum mt-0.5 text-muted-foreground">
+                        {tr("流量计费：", "Mode: ")}
+                        {trafficModeLabel(node.traffic_mode, lang)}
+                        {node.traffic_reset_day > 0
+                          ? tr(` · 每月 ${node.traffic_reset_day} 日重置`, ` · Resets Day ${node.traffic_reset_day}`)
+                          : ""}
+                      </div>
+                    )}
                   </div>
                   <button
                     type="button"
-                    onClick={() => onOpen(node.id)}
+                    onClick={() => onOpen(node.id, showPing ? "latency" : "resources")}
                     className="mt-2 inline-flex w-fit cursor-pointer items-center gap-1 text-xs font-semibold text-primary hover:underline"
                   >
                     {tr("打开完整历史趋势与延迟监控", "Open Full History & Latency Charts")} <ArrowUpRight className="size-3.5" />
@@ -280,11 +354,15 @@ function TableRowItem({
 export function ServerTable({
   nodes,
   showBilling = true,
+  showPing = true,
+  pingSummaries,
   onOpen,
 }: {
   nodes: Node[]
   showBilling?: boolean
-  onOpen: (id: number) => void
+  showPing?: boolean
+  pingSummaries?: Map<number, NodePingSummary>
+  onOpen: (id: number, tab?: "resources" | "latency") => void
 }) {
   const { tr } = useI18n()
   return (
@@ -314,6 +392,9 @@ export function ServerTable({
               <th className="hidden px-3 py-2.5 text-left lg:table-cell">{tr("操作系统", "OS")}</th>
               <th className="hidden px-3 py-2.5 text-left md:table-cell">{tr("在线时长", "Uptime")}</th>
               <th className="px-3 py-2.5 text-left">{tr("实时网速", "Throughput")}</th>
+              {showPing && (
+                <th className="hidden px-3 py-2.5 text-left sm:table-cell">{tr("延迟 / 丢包", "Ping / Loss")}</th>
+              )}
               <th className="px-3 py-2.5 text-left">CPU</th>
               <th className="hidden px-3 py-2.5 text-left sm:table-cell">{tr("内存", "RAM")}</th>
               <th className="hidden px-3 py-2.5 text-left xl:table-cell">{tr("硬盘", "Disk")}</th>
@@ -326,7 +407,14 @@ export function ServerTable({
           </thead>
           <tbody>
             {nodes.map((n) => (
-              <TableRowItem key={n.id} node={n} showBilling={showBilling} onOpen={onOpen} />
+              <TableRowItem
+                key={n.id}
+                node={n}
+                showBilling={showBilling}
+                showPing={showPing}
+                pingSummary={pingSummaries?.get(n.id)}
+                onOpen={onOpen}
+              />
             ))}
           </tbody>
         </table>
@@ -334,3 +422,4 @@ export function ServerTable({
     </Card>
   )
 }
+

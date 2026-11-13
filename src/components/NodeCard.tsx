@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react"
-import { ArrowDown, ArrowUp, ArrowUpRight, Cpu, Layers, MessageSquareText, Lock } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpRight, Cpu, Layers, MessageSquareText, Lock, Radio } from "lucide-react"
 import {
   siAlmalinux,
   siAlpinelinux,
@@ -18,8 +18,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Meter } from "@/components/Meter"
-import { VibeSparkline } from "@/components/VibeCharts"
-import { nodeSpeedHistory, type Node } from "@/lib/api"
+import { PING_PROBE_COLORS, VibePingSparkline, VibeSparkline } from "@/components/VibeCharts"
+import { nodeSpeedHistory, type Node, type NodePingSummary } from "@/lib/api"
 import {
   bytes,
   cpuName,
@@ -175,16 +175,240 @@ export function Expiry({ node }: { node: Node }) {
   )
 }
 
+export function PingHealthBadge({
+  summary,
+  compact = false,
+}: {
+  summary: NodePingSummary
+  compact?: boolean
+}) {
+  const { tr } = useI18n()
+  if (summary.health === "empty") return null
+
+  const { health, medianMs, maxLoss, jitterMs } = summary
+  const lossTag = maxLoss >= 1 ? `${Math.round(maxLoss)}%` : maxLoss > 0 ? "<1%" : null
+
+  const cfg =
+    health === "critical"
+      ? {
+          cls: "bg-rose-500/14 text-rose-600 dark:text-rose-300",
+          dot: "bg-rose-500",
+          text:
+            medianMs === null
+              ? tr("超时", "Timeout")
+              : maxLoss >= 10
+                ? `${tr("丢包", "Loss")} ${lossTag}`
+                : tr("高延", "High"),
+        }
+      : health === "jitter"
+        ? {
+            cls: "bg-amber-500/14 text-amber-600 dark:text-amber-300",
+            dot: "bg-amber-500",
+            text:
+              maxLoss >= 1
+                ? `${tr("丢包", "Loss")} ${lossTag}`
+                : jitterMs >= 55
+                  ? `${tr("波动", "Jitter")} ±${jitterMs}ms`
+                  : tr("偏高", "Elevated"),
+          }
+        : health === "good"
+          ? {
+              cls: "bg-[var(--vibe-blue)]/12 text-[var(--vibe-blue)]",
+              dot: "bg-[var(--vibe-blue)]",
+              text: lossTag ? `${tr("正常", "OK")} · ${tr("丢", "L")}${lossTag}` : tr("正常", "Normal"),
+            }
+          : {
+              cls: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
+              dot: "bg-emerald-500",
+              text: tr("优良", "Optimal"),
+            }
+
+  return (
+    <span
+      className={cn(
+        "tnum inline-flex shrink-0 items-center gap-1 rounded-full font-medium",
+        compact ? "px-1.5 py-0.2 text-[10px]" : "px-2 py-0.5 text-[10px]",
+        cfg.cls,
+      )}
+    >
+      <span className={cn("size-1.5 rounded-full", cfg.dot)} />
+      {cfg.text}
+    </span>
+  )
+}
+
+function NodePingStrip({
+  summary,
+  onOpenLatency,
+}: {
+  summary: NodePingSummary | undefined
+  onOpenLatency?: () => void
+}) {
+  const { tr } = useI18n()
+
+  // Initial loading state: subtle placeholder keeping card height steady
+  if (!summary) {
+    return (
+      <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-card-subtle/60 px-3 py-2 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <Radio className="size-3 text-muted-foreground/70" />
+          <span>{tr("延迟趋势加载中…", "Loading ping trend…")}</span>
+        </span>
+        <div className="h-3.5 w-20 animate-pulse rounded bg-muted" />
+      </div>
+    )
+  }
+
+  // Empty / unconfigured / failed state: graceful non-intrusive bar
+  if (summary.health === "empty" || summary.probes.length === 0) {
+    return (
+      <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl border border-border/40 bg-card-subtle/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <Radio className="size-3 text-muted-foreground/60" />
+          <span>{tr("延迟探测", "Ping")}</span>
+        </span>
+        <span className="text-[10px]">
+          {summary.error ? tr("暂不可用", "Unavailable") : tr("未配置探测目标", "No probes configured")}
+        </span>
+      </div>
+    )
+  }
+
+  const toneBorder =
+    summary.health === "critical"
+      ? "border-rose-500/35 bg-rose-500/[0.045] hover:border-rose-500/55"
+      : summary.health === "jitter"
+        ? "border-amber-500/30 bg-amber-500/[0.04] hover:border-amber-500/50"
+        : "border-border/55 bg-card-subtle/75 hover:border-ring/45"
+
+  const iconColor =
+    summary.health === "critical"
+      ? "text-rose-500"
+      : summary.health === "jitter"
+        ? "text-amber-500"
+        : summary.health === "good"
+          ? "text-[var(--vibe-blue)]"
+          : "text-emerald-500"
+
+  const shownProbes = summary.probes.slice(0, 3)
+
+  return (
+    <div
+      role="group"
+      aria-label={tr("多线延迟趋势", "Multi-probe latency trend")}
+      onClick={(e) => {
+        if (onOpenLatency) {
+          e.stopPropagation()
+          onOpenLatency()
+        }
+      }}
+      className={cn(
+        "mt-2.5 rounded-xl border px-3 py-2 transition-colors",
+        toneBorder,
+      )}
+    >
+      {/* Top Row: Label + Overall Median & Health Status + Coordinated Sparkline */}
+      <div className="flex items-center justify-between gap-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <Radio className={cn("size-3.5 shrink-0", iconColor)} />
+          <span className="text-[11px] font-medium text-muted-foreground">
+            {tr("延迟", "Ping")}
+          </span>
+          <span className="tnum text-xs font-bold text-foreground">
+            {summary.medianMs !== null ? `${summary.medianMs} ms` : tr("超时", "Timeout")}
+          </span>
+          <PingHealthBadge summary={summary} compact />
+        </div>
+
+        <div className="w-24 shrink-0">
+          <VibePingSparkline
+            height={22}
+            probes={shownProbes.map((p, i) => ({
+              id: p.id,
+              values: p.values,
+              color:
+                p.health === "critical"
+                  ? "#f43f5e"
+                  : p.health === "jitter"
+                    ? "#f59e0b"
+                    : PING_PROBE_COLORS[i % PING_PROBE_COLORS.length],
+            }))}
+          />
+        </div>
+      </div>
+
+      {/* Bottom Row: Per-Probe Latency & Loss Pills */}
+      <div
+        className={cn(
+          "mt-1.5 grid gap-1.5",
+          shownProbes.length === 1
+            ? "grid-cols-1"
+            : shownProbes.length === 2
+              ? "grid-cols-2"
+              : "grid-cols-3",
+        )}
+      >
+        {shownProbes.map((p, i) => {
+          const dotColor =
+            p.health === "critical"
+              ? "#f43f5e"
+              : p.health === "jitter"
+                ? "#f59e0b"
+                : PING_PROBE_COLORS[i % PING_PROBE_COLORS.length]
+          return (
+            <div
+              key={p.id}
+              title={`${p.name} · ${tr("当前", "Now")} ${p.latest !== null ? `${p.latest}ms` : tr("超时", "Timeout")} · ${tr("中位", "Med")} ${p.median !== null ? `${p.median}ms` : "—"} · ${tr("抖动", "Jitter")} ±${p.jitter}ms · ${tr("丢包", "Loss")} ${p.loss}%`}
+              className="flex min-w-0 items-center justify-between gap-1 rounded-lg bg-card/75 px-2 py-1 text-[10px]"
+            >
+              <span className="inline-flex min-w-0 items-center gap-1 text-muted-foreground">
+                <span
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: dotColor }}
+                />
+                <span className="truncate">{p.name}</span>
+              </span>
+              <span
+                className={cn(
+                  "tnum shrink-0 font-semibold",
+                  p.health === "critical"
+                    ? "text-rose-500"
+                    : p.health === "jitter"
+                      ? "text-amber-500"
+                      : "text-foreground",
+                )}
+              >
+                {p.median !== null ? `${p.median}ms` : tr("超时", "T/O")}
+                {p.loss >= 1 && (
+                  <span className="ml-0.5 text-[9px] font-normal text-rose-500">
+                    ·{Math.round(p.loss)}%
+                  </span>
+                )}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function NodeCard({
   node,
   showSparkline = true,
+  showPing = true,
+  pingSummary,
   showBilling = true,
   onOpen,
+  onOpenLatency,
 }: {
   node: Node
   showSparkline?: boolean
+  showPing?: boolean
+  pingSummary?: NodePingSummary
   showBilling?: boolean
   onOpen: () => void
+  onOpenLatency?: () => void
 }) {
   const { lang, tr } = useI18n()
   const m = node.metrics
@@ -336,6 +560,9 @@ export function NodeCard({
             )}
           </div>
 
+          {/* Configurable Multi-Probe Ping Trend Strip */}
+          {showPing && <NodePingStrip summary={pingSummary} onOpenLatency={onOpenLatency} />}
+
           {/* Card Footer: Connections/Processes + Billing & Expiry */}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-2.5 text-[11px]">
             <span className="tnum inline-flex items-center gap-1.5 text-muted-foreground">
@@ -375,12 +602,18 @@ export function NodeCard({
  * ============================================================================ */
 export function NodeCompactCard({
   node,
+  showPing = true,
+  pingSummary,
   showBilling = true,
   onOpen,
+  onOpenLatency,
 }: {
   node: Node
+  showPing?: boolean
+  pingSummary?: NodePingSummary
   showBilling?: boolean
   onOpen: () => void
+  onOpenLatency?: () => void
 }) {
   const { tr } = useI18n()
   const m = node.metrics
@@ -435,6 +668,36 @@ export function NodeCompactCard({
             ))}
           </div>
 
+          {showPing && pingSummary && pingSummary.health !== "empty" && (
+            <div
+              onClick={(e) => {
+                if (onOpenLatency) {
+                  e.stopPropagation()
+                  onOpenLatency()
+                }
+              }}
+              className="flex items-center justify-between gap-2 rounded-lg bg-card-subtle/75 px-2.5 py-1 text-[11px]"
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Radio className="size-3 shrink-0 text-[var(--vibe-blue)]" />
+                <span className="tnum font-semibold text-foreground">
+                  {pingSummary.medianMs !== null ? `${pingSummary.medianMs} ms` : tr("超时", "T/O")}
+                </span>
+                <PingHealthBadge summary={pingSummary} compact />
+              </div>
+              <div className="w-16 shrink-0">
+                <VibePingSparkline
+                  height={16}
+                  probes={pingSummary.probes.slice(0, 3).map((p, i) => ({
+                    id: p.id,
+                    values: p.values,
+                    color: PING_PROBE_COLORS[i % PING_PROBE_COLORS.length],
+                  }))}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
             <span className="tnum inline-flex items-center gap-2 font-medium text-foreground">
               <span>↓ {m ? rate(m.net_rx) : "—"}</span>
@@ -449,3 +712,4 @@ export function NodeCompactCard({
     </Card>
   )
 }
+

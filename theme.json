@@ -123,6 +123,13 @@
       "help": "在每张服务器卡片底部绘制实时上下行吞吐微折线图"
     },
     {
+      "key": "show_ping",
+      "type": "boolean",
+      "label": "显示节点延迟数据趋势",
+      "default": true,
+      "help": "在节点卡片、紧凑视图与表格中展示多线 TCP 延迟趋势、延迟健康度与丢包率"
+    },
+    {
       "key": "show_billing",
       "type": "boolean",
       "label": "显示资费与续费周期",

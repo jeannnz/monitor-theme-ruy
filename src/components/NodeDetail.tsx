@@ -36,7 +36,7 @@ import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Country, Expiry, OsIcon, Status } from "@/components/NodeCard"
 import { VibeTickRing } from "@/components/VibeCharts"
-import { api, type Node } from "@/lib/api"
+import { api, classifyProbeHealth, type Node } from "@/lib/api"
 import {
   axisBytes,
   axisTop,
@@ -155,6 +155,7 @@ function ChartCard({
 function despikeWindow(points: { ts: number }[]): number {
   let step = Infinity
   for (let i = 1; i < points.length; i++) step = Math.min(step, points[i].ts - points[i - 1].ts)
+  if (!Number.isFinite(step) || step <= 0) return 3
   return Math.min(15, Math.max(3, Math.round(420 / step) | 1))
 }
 
@@ -163,6 +164,7 @@ export function NodeDetail({
   nodes = [],
   historyDays,
   showBilling = true,
+  initialTab = "resources",
   onBack,
   onSelectNode,
 }: {
@@ -170,12 +172,13 @@ export function NodeDetail({
   nodes?: Node[]
   historyDays: number
   showBilling?: boolean
+  initialTab?: "resources" | "latency"
   onBack?: () => void
   onSelectNode?: (id: number) => void
 }) {
   const { lang, tr } = useI18n()
   const ranges = useMemo(() => windows(historyDays, lang), [historyDays, lang])
-  const [tab, setTab] = useState<"resources" | "latency">("resources")
+  const [tab, setTab] = useState<"resources" | "latency">(initialTab)
   const [picked, setPicked] = useState({ resources: 6, latency: 6 })
   const hours = picked[tab]
   const [smooth, setSmooth] = useState(false)
@@ -225,31 +228,60 @@ export function NodeDetail({
   const prevNode = currentIdx > 0 ? nodes[currentIdx - 1] : null
   const nextNode = currentIdx >= 0 && currentIdx < nodes.length - 1 ? nodes[currentIdx + 1] : null
 
-  const pingSeries = useMemo(
-    () =>
-      [...new Set((data?.ping ?? []).map((p) => p.task_id))]
-        .map((id) => {
-          const points = (data?.ping ?? []).filter((p) => p.task_id === id)
-          const answered = points.map((p) => p.latency).filter((v): v is number => v !== null)
-          const sorted = [...answered].sort((a, b) => a - b)
-          const medianLat =
-            sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : null
-          const minLat = sorted.length > 0 ? sorted[0] : null
-          const maxLat = sorted.length > 0 ? sorted[sorted.length - 1] : null
-          const loss = data?.loss?.[id] ?? 0
-          return {
-            id,
-            name: data?.probes?.[id] ?? `${tr("探测", "Probe")} ${id}`,
-            points,
-            loss,
-            medianLat,
-            minLat,
-            maxLat,
-          }
-        })
-        .filter((s) => s.points.length > 0),
-    [data, tr],
-  )
+  const pingSeries = useMemo(() => {
+    const rawPing = Array.isArray(data?.ping) ? data.ping : []
+    const validPing = rawPing
+      .filter(
+        (p): p is PingPoint =>
+          Boolean(p) &&
+          typeof p.task_id === "number" &&
+          Number.isFinite(p.task_id) &&
+          typeof p.ts === "number" &&
+          Number.isFinite(p.ts) &&
+          p.ts > 0,
+      )
+      .map((p) => {
+        const lat =
+          typeof p.latency === "number" && Number.isFinite(p.latency) && p.latency >= 0 && p.latency <= 60_000
+            ? p.latency
+            : null
+        return { ...p, latency: lat }
+      })
+
+    return [...new Set(validPing.map((p) => p.task_id))]
+      .map((id) => {
+        const points = validPing.filter((p) => p.task_id === id).sort((a, b) => a.ts - b.ts)
+        const answered = points.map((p) => p.latency).filter((v): v is number => v !== null)
+        const sorted = [...answered].sort((a, b) => a - b)
+        const medianLat =
+          sorted.length > 0 ? Math.round(sorted[Math.floor(sorted.length / 2)]) : null
+        const minLat = sorted.length > 0 ? Math.round(sorted[0]) : null
+        const maxLat = sorted.length > 0 ? Math.round(sorted[sorted.length - 1]) : null
+        const p10 = sorted.length > 0 ? sorted[Math.floor(sorted.length * 0.1)] : 0
+        const p90 = sorted.length > 0 ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))] : 0
+        const jitterMs = sorted.length >= 2 ? Math.max(0, Math.round(p90 - p10)) : 0
+        const rawLoss = data?.loss?.[String(id)] ?? data?.loss?.[id]
+        const fallbackLoss =
+          points.length > 0 ? ((points.length - answered.length) / points.length) * 100 : 0
+        const loss =
+          typeof rawLoss === "number" && Number.isFinite(rawLoss)
+            ? Math.min(100, Math.max(0, rawLoss))
+            : fallbackLoss
+        const health = classifyProbeHealth(medianLat, loss, jitterMs)
+        return {
+          id,
+          name: data?.probes?.[id] ?? `${tr("探测", "Probe")} ${id}`,
+          points,
+          loss,
+          medianLat,
+          minLat,
+          maxLat,
+          jitterMs,
+          health,
+        }
+      })
+      .filter((s) => s.points.length > 0)
+  }, [data, tr])
 
   const metricRows = useMemo(() => {
     const lift = (v: number) => Math.max(v, RATE_FLOOR)
@@ -769,20 +801,23 @@ export function NodeDetail({
                   {tr("多线延迟与丢包", "Edge Latency & Packet Loss")}
                 </h3>
               </div>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-emerald-500" /> &lt; 60 ms
+                  <span className="size-2 rounded-full bg-emerald-500" /> {tr("优良", "Optimal")} (&lt;60ms)
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-[var(--vibe-blue)]" /> 60–150 ms
+                  <span className="size-2 rounded-full bg-[var(--vibe-blue)]" /> {tr("正常", "Normal")} (60–150ms)
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-amber-500" /> &gt; 150 ms
+                  <span className="size-2 rounded-full bg-amber-500" /> {tr("波动", "Jitter")} (&gt;150ms / ≥1%)
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="size-2 rounded-full bg-rose-500" /> {tr("告警", "Alert")} (≥10% {tr("丢包", "Loss")})
                 </span>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 pt-2 lg:grid-cols-[270px_minmax(0,1fr)]">
+            <div className="grid grid-cols-1 gap-5 pt-2 lg:grid-cols-[276px_minmax(0,1fr)]">
               {/* Left Sidebar inside Edge Latency Card */}
               <div className="flex flex-col justify-between rounded-2xl bg-card-subtle p-4">
                 <div>
@@ -791,7 +826,7 @@ export function NodeDetail({
                   </div>
                   <div className="mt-1 flex items-baseline gap-2">
                     <span className="tnum text-3xl font-bold tracking-tight">
-                      {fleetMedianLatency !== null ? `${fleetMedianLatency} ms` : "—"}
+                      {fleetMedianLatency !== null ? `${fleetMedianLatency} ms` : tr("超时", "Timeout")}
                     </span>
                     <Badge variant="emerald" className="text-[11px]">
                       {tr(`${shownProbes.length} 线路`, `${shownProbes.length} Probes`)}
@@ -813,7 +848,25 @@ export function NodeDetail({
                     {pingSeries.map((s) => {
                       const shown = !hiddenProbes.includes(s.id)
                       const lat = s.medianLat ?? 0
-                      const barPct = Math.min(100, Math.max(6, (lat / 260) * 100))
+                      const barPct = s.medianLat === null ? 100 : Math.min(100, Math.max(6, (lat / 260) * 100))
+                      const healthTag =
+                        s.health === "critical"
+                          ? s.medianLat === null
+                            ? tr("超时", "Timeout")
+                            : tr("高丢包", "High Loss")
+                          : s.health === "jitter"
+                            ? tr("波动", "Jitter")
+                            : s.health === "good"
+                              ? tr("正常", "Normal")
+                              : tr("优良", "Optimal")
+                      const healthColor =
+                        s.health === "critical"
+                          ? "text-rose-500"
+                          : s.health === "jitter"
+                            ? "text-amber-500"
+                            : s.health === "good"
+                              ? "text-[var(--vibe-blue)]"
+                              : "text-emerald-500"
                       return (
                         <button
                           key={s.id}
@@ -824,6 +877,7 @@ export function NodeDetail({
                           }
                           className={cn(
                             "w-full cursor-pointer rounded-xl bg-card p-2.5 text-left transition-all hover:ring-1 hover:ring-ring/50",
+                            s.health === "critical" && "ring-1 ring-rose-500/30",
                             !shown && "opacity-45",
                           )}
                         >
@@ -834,11 +888,19 @@ export function NodeDetail({
                                 style={{ backgroundColor: style(s.id).stroke }}
                               />
                               <span className="truncate">{s.name}</span>
+                              <span className={cn("shrink-0 text-[10px] font-medium", healthColor)}>
+                                [{healthTag}]
+                              </span>
                             </span>
                             <span className="tnum shrink-0 font-semibold">
                               {s.medianLat !== null ? `${s.medianLat} ms` : tr("超时", "Timeout")}
                               {s.loss > 0 && (
-                                <span className="ml-1 text-[11px] font-normal text-rose-500">
+                                <span
+                                  className={cn(
+                                    "ml-1 text-[11px] font-normal",
+                                    s.loss >= 10 ? "font-semibold text-rose-500" : "text-amber-500",
+                                  )}
+                                >
                                   · {tr("丢", "Loss")} {s.loss < 1 ? "<1" : Math.round(s.loss)}%
                                 </span>
                               )}
@@ -849,7 +911,8 @@ export function NodeDetail({
                               className="h-full rounded-full transition-all"
                               style={{
                                 width: `${barPct}%`,
-                                backgroundColor: style(s.id).stroke,
+                                backgroundColor:
+                                  s.medianLat === null ? "rgb(244 63 94)" : style(s.id).stroke,
                               }}
                             />
                           </div>
@@ -857,6 +920,9 @@ export function NodeDetail({
                             <div className="tnum mt-1 flex justify-between text-[10px] text-muted-foreground">
                               <span>
                                 {tr("最低", "Min")} {s.minLat} ms
+                              </span>
+                              <span>
+                                {tr("抖动", "Jitter")} ±{s.jitterMs} ms
                               </span>
                               <span>
                                 {tr("最高", "Max")} {s.maxLat} ms
@@ -883,6 +949,15 @@ export function NodeDetail({
                   <div className="flex h-full items-center justify-center text-sm">
                     {tr("请至少在左侧勾选一条探测线路", "Select at least one probe target on the left")}
                   </div>
+                ) : fleetMedianLatency === null ? (
+                  <div className="flex h-full flex-col items-center justify-center gap-1.5 rounded-2xl border border-rose-500/25 bg-rose-500/5 p-6 text-center">
+                    <span className="text-sm font-semibold text-rose-500">
+                      {tr("所选探测线路在该时间窗口内全部超时 (100% 丢包)", "All selected probes timed out (100% packet loss) in this window")}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {tr("请检查目标端口连通性或切换其他时间范围查看历史记录", "Verify target port reachability or switch to a wider time window")}
+                    </span>
+                  </div>
                 ) : (
                   <ResponsiveContainer>
                     <ComposedChart data={pingRows}>
@@ -898,6 +973,9 @@ export function NodeDetail({
                       <Tooltip
                         {...TOOLTIP}
                         formatter={(v, name, item) => {
+                          if (v === null || v === undefined || !Number.isFinite(Number(v))) {
+                            return [tr("超时 (100% 丢包)", "Timeout (100% Loss)"), name]
+                          }
                           const loss = Number(item?.payload?.[`l${String(item.dataKey).slice(1)}`] ?? 0)
                           return [
                             `${Math.round(Number(v))} ms${loss > 0 ? ` · ${tr("丢包", "Loss")} ${loss}%` : ""}`,

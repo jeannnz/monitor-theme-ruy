@@ -195,21 +195,45 @@ function history(n, urlObj) {
   }
 
   if (series !== "metrics") {
+    const country = n.seed[1]
+    const baseByRegion =
+      country === "CN" || country === "HK"
+        ? 14
+        : country === "JP" || country === "KR"
+          ? 34
+          : country === "SG"
+            ? 56
+            : country === "US" || country === "AU"
+              ? 118
+              : 145
+    const lossRate = n.id === 7 ? 0.16 : n.id === 6 ? 0.035 : n.id % 5 === 0 ? 0.015 : 0
+    const jitterAmp = n.id === 6 ? 58 : n.id === 7 ? 42 : 10
+
     for (const task_id of [1, 2, 3]) {
       let lost = 0
       let rows = 0
       for (let ts = since; ts <= until; ts += step, rows++) {
-        if (noise(n.id, ts, task_id) < 0.02) {
+        if (lossRate > 0 && noise(n.id, ts, task_id) < lossRate) {
           lost++
           ping.push({ ts, task_id, latency: null, loss: 100 })
           continue
         }
-        const latency = Math.round(28 * task_id + 32 * noise(n.id, task_id) + 12 * noise(n.id, ts, task_id, 1))
+        const wave = Math.sin(ts / 900 + task_id) * (jitterAmp * 0.45)
+        const latency = Math.max(
+          4,
+          Math.round(
+            baseByRegion +
+              (task_id - 1) * 11 +
+              14 * noise(n.id, task_id) +
+              wave +
+              jitterAmp * (noise(n.id, ts, task_id, 1) - 0.35),
+          ),
+        )
         const spread = Math.round(3 + 14 * noise(n.id, ts, task_id, 2))
         const row = { ts, task_id, latency, band: [Math.max(1, latency - spread), latency + spread] }
         ping.push(row)
       }
-      if (lost) loss[task_id] = (100 * lost) / rows
+      if (lost) loss[task_id] = Number(((100 * lost) / rows).toFixed(1))
     }
   }
 

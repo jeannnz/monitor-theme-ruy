@@ -55,6 +55,10 @@ const FIELD_LABELS_EN: Record<string, { label: string; help: string }> = {
     label: "Show Live Speed Sparkline on Cards",
     help: "Draw real-time inbound/outbound throughput sparklines inside each server card.",
   },
+  show_ping: {
+    label: "Show Node Ping Latency Trend",
+    help: "Display multi-probe TCP latency trends, health status, and packet loss in cards and tables.",
+  },
   show_billing: {
     label: "Show Price & Renewal Cycle",
     help: "Display node cost, billing cycle, and expiry countdown across cards, table, and billing view.",

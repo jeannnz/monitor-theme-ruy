@@ -23,6 +23,7 @@ export type ThemeConfig = {
   show_analytics: boolean
   map_style: "globe" | "dotted"
   show_sparkline: boolean
+  show_ping: boolean
   show_billing: boolean
   footer_text: string
 }

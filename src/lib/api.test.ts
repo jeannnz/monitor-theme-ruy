@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import assert from "node:assert/strict"
-import { api, groupsOf, safeNodes, sample, speedHistory, type Node } from "./api.ts"
+import { api, groupsOf, safeNodes, sample, speedHistory, summarizePing, type Node } from "./api.ts"
 
 const node = { id: 1, metrics: { uptime: 100, cpu: 1, load: [0.1, 0.2, 0.3],
   mem_total: 1024, mem_used: 512, swap_total: 0, swap_used: 0, disk_total: 2048, disk_used: 1024,
@@ -47,3 +47,49 @@ console.log("throughput is kept per group")
   await assert.rejects(api("/nodes"), { status: 200, message: "收到的不是状态数据，稍后再试" })
   console.log("timeouts are retried and read as network failures")
 }
+
+// Ping summary & anomaly compatibility tests
+{
+  assert.equal(summarizePing(null).health, "empty")
+  assert.equal(summarizePing({ ping: "not-an-array" }).health, "empty")
+
+  const healthy = summarizePing({
+    ping: [
+      { task_id: 3, ts: 200, latency: 34 },
+      { task_id: 3, ts: 100, latency: 32 },
+      { task_id: 3, ts: 300, latency: 880 }, // extreme spike despiked
+      { task_id: 3, ts: 400, latency: 33 },
+      { task_id: 3, ts: 500, latency: 35 },
+      { task_id: 1, ts: 100, latency: 48 },
+      { task_id: 1, ts: 200, latency: 50 },
+      { task_id: "invalid", ts: 300, latency: 20 },
+    ],
+    probes: { 1: "电信 CN2", 3: "移动 CMI" },
+    loss: {},
+  })
+  assert.deepEqual(
+    healthy.probes.map((p) => p.id),
+    [3, 1],
+  )
+  assert.equal(healthy.probes[0].name, "移动 CMI")
+  assert.equal(healthy.probes[0].health, "excellent")
+  assert.equal(healthy.health, "excellent")
+
+  const degraded = summarizePing({
+    ping: [
+      { task_id: 1, ts: 100, latency: 42 },
+      { task_id: 2, ts: 100, latency: null },
+      { task_id: 2, ts: 200, latency: -15 },
+      { task_id: 2, ts: 300, latency: Infinity },
+    ],
+    probes: { 1: "电信", 2: "联通" },
+    loss: { 1: 0, 2: 18.5 },
+  })
+  assert.equal(degraded.probes[1].median, null)
+  assert.equal(degraded.probes[1].latestTimedOut, true)
+  assert.equal(degraded.probes[1].health, "critical")
+  assert.equal(degraded.maxLoss, 18.5)
+  assert.equal(degraded.health, "critical")
+  console.log("ping summaries preserve probe order, despike outliers, and isolate anomalies")
+}
+

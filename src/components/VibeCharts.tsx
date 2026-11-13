@@ -68,6 +68,162 @@ export function VibeSparkline({
   )
 }
 
+export const PING_PROBE_COLORS = [
+  "var(--vibe-blue)",
+  "var(--vibe-cyan)",
+  "var(--vibe-teal)",
+  "#818cf8",
+  "#f59e0b",
+] as const
+
+/* ============================================================================
+ * 1b. VibePingSparkline — Multi-Probe Latency Trend with Loss/Timeout Markers
+ * ============================================================================ */
+export function VibePingSparkline({
+  probes,
+  height = 26,
+  className,
+}: {
+  probes: { id: number; values: (number | null)[]; color?: string }[]
+  height?: number
+  className?: string
+}) {
+  const uid = useId().replace(/:/g, "")
+  const allNums = probes.flatMap((p) => p.values).filter((v): v is number => v !== null && Number.isFinite(v))
+
+  if (probes.length === 0) return null
+
+  // All probes timed out (100% packet loss): draw dashed rose baseline
+  if (allNums.length === 0) {
+    return (
+      <svg
+        viewBox={`0 0 120 ${height}`}
+        preserveAspectRatio="none"
+        className={cn("w-full overflow-visible", className)}
+        style={{ height }}
+        aria-hidden
+      >
+        <line
+          x1={0}
+          y1={height / 2}
+          x2={120}
+          y2={height / 2}
+          stroke="#f43f5e"
+          strokeWidth={1.5}
+          strokeDasharray="3 3"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+    )
+  }
+
+  const minVal = Math.max(0, Math.min(...allNums) * 0.82)
+  const maxVal = Math.max(...allNums, minVal + 20) * 1.08
+  const span = Math.max(maxVal - minVal, 10)
+  const maxSteps = Math.max(...probes.map((p) => p.values.length), 2) - 1
+
+  // Collect x-positions where any probe experienced a timeout (null sample)
+  const lossPositions = new Set<number>()
+  for (const p of probes) {
+    const stepDenom = Math.max(p.values.length - 1, 1)
+    p.values.forEach((v, idx) => {
+      if (v === null) {
+        lossPositions.add(Number(((idx / stepDenom) * 120).toFixed(1)))
+      }
+    })
+  }
+
+  return (
+    <svg
+      viewBox={`0 0 120 ${height}`}
+      preserveAspectRatio="none"
+      className={cn("w-full overflow-visible", className)}
+      style={{ height }}
+      aria-hidden
+    >
+      <defs>
+        {probes.map((p, i) => {
+          const color = p.color ?? PING_PROBE_COLORS[i % PING_PROBE_COLORS.length]
+          return (
+            <linearGradient key={p.id} id={`ping-spark-${uid}-${i}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity={i === 0 ? 0.2 : 0.08} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          )
+        })}
+      </defs>
+
+      {probes.map((p, i) => {
+        const color = p.color ?? PING_PROBE_COLORS[i % PING_PROBE_COLORS.length]
+        const raw = p.values.length >= 2 ? p.values : [p.values[0] ?? null, p.values[0] ?? null]
+        const denom = Math.max(raw.length - 1, maxSteps, 1)
+
+        // Split into contiguous non-null segments so packet loss gaps show cleanly
+        const segments: [number, number][][] = []
+        let current: [number, number][] = []
+        raw.forEach((v, idx) => {
+          if (v === null || !Number.isFinite(v)) {
+            if (current.length > 0) {
+              segments.push(current)
+              current = []
+            }
+            return
+          }
+          const px = (idx / denom) * 120
+          const norm = Math.min(1, Math.max(0, (v - minVal) / span))
+          const py = height - 3 - norm * (height - 6)
+          current.push([px, py])
+        })
+        if (current.length > 0) segments.push(current)
+
+        return (
+          <g key={p.id}>
+            {segments.map((seg, sIdx) => {
+              if (seg.length === 1) {
+                const [cx, cy] = seg[0]
+                return <circle key={sIdx} cx={cx} cy={cy} r={1.8} fill={color} />
+              }
+              const pts = seg.map(([px, py]) => `${px.toFixed(1)},${py.toFixed(1)}`).join(" ")
+              const firstX = seg[0][0].toFixed(1)
+              const lastX = seg[seg.length - 1][0].toFixed(1)
+              const areaPts = `${firstX},${height} ${pts} ${lastX},${height}`
+              return (
+                <g key={sIdx}>
+                  {i === 0 && <polygon points={areaPts} fill={`url(#ping-spark-${uid}-${i})`} />}
+                  <polyline
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={1.65}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                    points={pts}
+                  />
+                </g>
+              )
+            })}
+          </g>
+        )
+      })}
+
+      {/* Packet-loss / timeout markers at bottom baseline */}
+      {[...lossPositions].map((px) => (
+        <line
+          key={px}
+          x1={px}
+          y1={height - 5}
+          x2={px}
+          y2={height}
+          stroke="#f43f5e"
+          strokeWidth={1.6}
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </svg>
+  )
+}
+
 /* ============================================================================
  * 2. VibeTickRing — High-Density Radial Tick Progress Gauge
  * ============================================================================ */

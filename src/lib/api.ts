@@ -311,3 +311,294 @@ export function useNodes() {
 
   return { nodes, error, closed }
 }
+
+export type PingHealth = "excellent" | "good" | "jitter" | "critical"
+
+export type PingProbeSummary = {
+  id: number
+  name: string
+  values: (number | null)[]
+  latest: number | null
+  latestTimedOut: boolean
+  median: number | null
+  min: number | null
+  max: number | null
+  jitter: number
+  loss: number
+  health: PingHealth
+}
+
+export type NodePingSummary = {
+  probes: PingProbeSummary[]
+  medianMs: number | null
+  bestMs: number | null
+  worstMs: number | null
+  maxLoss: number
+  avgLoss: number
+  jitterMs: number
+  health: PingHealth | "empty"
+  error?: boolean
+}
+
+function cleanDespike(values: (number | null)[], window = 5, sigmas = 3): (number | null)[] {
+  const half = window >> 1
+  return values.map((v, i) => {
+    if (v === null) return null
+    const near = values.slice(Math.max(0, i - half), i + half + 1).filter((n): n is number => n !== null)
+    if (near.length < 3) return v
+    const sorted = [...near].sort((a, b) => a - b)
+    const mid = sorted[sorted.length >> 1]
+    const devs = sorted.map((n) => Math.abs(n - mid)).sort((a, b) => a - b)
+    const mad = Math.max(devs[devs.length >> 1], 1)
+    return Math.abs(v - mid) > sigmas * 1.4826 * mad ? Math.round(mid) : v
+  })
+}
+
+export function classifyProbeHealth(median: number | null, loss: number, jitter: number): PingHealth {
+  if (median === null || loss >= 10 || median >= 260) return "critical"
+  if (loss >= 1 || median >= 150 || jitter >= 55) return "jitter"
+  if (median >= 75 || loss > 0) return "good"
+  return "excellent"
+}
+
+/**
+ * Defensively parses and summarizes `/api/nodes/{id}/metrics?series=ping` payloads.
+ * Isolates malformed points, preserves operator probe ordering, and classifies health & loss.
+ */
+export function summarizePing(raw: unknown): NodePingSummary {
+  if (!raw || typeof raw !== "object") {
+    return {
+      probes: [],
+      medianMs: null,
+      bestMs: null,
+      worstMs: null,
+      maxLoss: 0,
+      avgLoss: 0,
+      jitterMs: 0,
+      health: "empty",
+    }
+  }
+
+  const payload = raw as {
+    ping?: unknown
+    probes?: unknown
+    loss?: unknown
+  }
+
+  const rawPing = Array.isArray(payload.ping) ? payload.ping : []
+  const rawProbes =
+    payload.probes && typeof payload.probes === "object" && !Array.isArray(payload.probes)
+      ? (payload.probes as Record<string, unknown>)
+      : {}
+  const hasLossMap =
+    payload.loss !== undefined &&
+    payload.loss !== null &&
+    typeof payload.loss === "object" &&
+    !Array.isArray(payload.loss)
+  const rawLoss = hasLossMap ? (payload.loss as Record<string, unknown>) : null
+
+  type ValidRow = { task_id: number; ts: number; latency: number | null }
+  const validRows: ValidRow[] = []
+
+  for (const item of rawPing) {
+    if (!item || typeof item !== "object") continue
+    const r = item as Record<string, unknown>
+    if (typeof r.task_id !== "number" || !Number.isFinite(r.task_id)) continue
+    if (typeof r.ts !== "number" || !Number.isFinite(r.ts)) continue
+    const lat =
+      typeof r.latency === "number" && Number.isFinite(r.latency) && r.latency >= 0 && r.latency <= 60_000
+        ? Math.round(r.latency)
+        : null
+    validRows.push({ task_id: r.task_id, ts: r.ts, latency: lat })
+  }
+
+  // Keep operator's probe order (order of first appearance in ping array)
+  const taskIds = [...new Set(validRows.map((r) => r.task_id))]
+  const probes: PingProbeSummary[] = []
+
+  for (const id of taskIds) {
+    const rows = validRows.filter((r) => r.task_id === id).sort((a, b) => a.ts - b.ts)
+    if (rows.length === 0) continue
+
+    const rawValues = rows.slice(-40).map((r) => r.latency)
+    const values = cleanDespike(rawValues)
+    const answered = values.filter((v): v is number => v !== null)
+    const sorted = [...answered].sort((a, b) => a - b)
+
+    const median =
+      sorted.length > 0
+        ? sorted.length % 2 === 1
+          ? sorted[sorted.length >> 1]
+          : Math.round((sorted[(sorted.length >> 1) - 1] + sorted[sorted.length >> 1]) / 2)
+        : null
+    const min = sorted.length > 0 ? sorted[0] : null
+    const max = sorted.length > 0 ? sorted[sorted.length - 1] : null
+    const p15 = sorted.length >= 4 ? sorted[Math.floor(sorted.length * 0.15)] : min ?? 0
+    const p85 = sorted.length >= 4 ? sorted[Math.floor(sorted.length * 0.85)] : max ?? 0
+    const jitter = sorted.length >= 2 ? Math.max(0, Math.round(p85 - p15)) : 0
+
+    let latest: number | null = null
+    for (let i = values.length - 1; i >= 0; i--) {
+      if (values[i] !== null) {
+        latest = values[i]
+        break
+      }
+    }
+    const latestTimedOut = rawValues.length > 0 && rawValues[rawValues.length - 1] === null
+
+    let loss = 0
+    if (rawLoss) {
+      const v = rawLoss[String(id)]
+      loss = typeof v === "number" && Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 0
+    } else {
+      const nullCount = rows.filter((r) => r.latency === null).length
+      loss = rows.length > 0 ? (nullCount / rows.length) * 100 : 0
+    }
+
+    const rawName = rawProbes[String(id)]
+    const name =
+      typeof rawName === "string" && rawName.trim().length > 0 ? rawName.trim() : `#${id}`
+
+    probes.push({
+      id,
+      name,
+      values,
+      latest,
+      latestTimedOut,
+      median,
+      min,
+      max,
+      jitter,
+      loss: Number(loss.toFixed(1)),
+      health: classifyProbeHealth(median, loss, jitter),
+    })
+  }
+
+  if (probes.length === 0) {
+    return {
+      probes: [],
+      medianMs: null,
+      bestMs: null,
+      worstMs: null,
+      maxLoss: 0,
+      avgLoss: 0,
+      jitterMs: 0,
+      health: "empty",
+    }
+  }
+
+  const validMedians = probes.map((p) => p.median).filter((v): v is number => v !== null).sort((a, b) => a - b)
+  const medianMs =
+    validMedians.length > 0
+      ? validMedians.length % 2 === 1
+        ? validMedians[validMedians.length >> 1]
+        : Math.round((validMedians[(validMedians.length >> 1) - 1] + validMedians[validMedians.length >> 1]) / 2)
+      : null
+  const bestMs = validMedians.length > 0 ? validMedians[0] : null
+  const worstMs = validMedians.length > 0 ? validMedians[validMedians.length - 1] : null
+  const maxLoss = Number(Math.max(...probes.map((p) => p.loss)).toFixed(1))
+  const avgLoss = Number(
+    (probes.reduce((acc, p) => acc + p.loss, 0) / probes.length).toFixed(1),
+  )
+  const jitterMs = Math.max(...probes.map((p) => p.jitter))
+
+  const health: PingHealth =
+    probes.some((p) => p.health === "critical") || medianMs === null
+      ? "critical"
+      : probes.some((p) => p.health === "jitter")
+        ? "jitter"
+        : probes.some((p) => p.health === "good")
+          ? "good"
+          : "excellent"
+
+  return {
+    probes,
+    medianMs,
+    bestMs,
+    worstMs,
+    maxLoss,
+    avgLoss,
+    jitterMs,
+    health,
+  }
+}
+
+export const pingSummaryCache = new Map<number, NodePingSummary>()
+
+/**
+ * Periodically fetches and caches lightweight 1-hour ping trend summaries (`series=ping`)
+ * for deployed nodes when `enabled` is true.
+ */
+export function usePingSummaries(nodes: Node[] | null, enabled: boolean): Map<number, NodePingSummary> {
+  const [summaries, setSummaries] = useState<Map<number, NodePingSummary>>(() => new Map(pingSummaryCache))
+
+  const nodeKey = nodes
+    ? nodes
+        .filter((n) => n.cpu_cores > 0 || n.mem_total > 0)
+        .map((n) => n.id)
+        .join(",")
+    : ""
+
+  useEffect(() => {
+    if (!enabled || !nodeKey) return
+
+    let active = true
+    const ids = nodeKey.split(",").map(Number).filter(Boolean)
+
+    const fetchAll = async () => {
+      const queue = [...ids]
+      const concurrency = Math.min(4, queue.length)
+      const workers = Array.from({ length: concurrency }, async () => {
+        while (active && queue.length > 0) {
+          const id = queue.shift()
+          if (!id) break
+          try {
+            const raw = await api<unknown>(`/nodes/${id}/metrics?hours=1&points=60&series=ping`)
+            if (!active) return
+            const summary = summarizePing(raw)
+            pingSummaryCache.set(id, summary)
+          } catch {
+            if (!active) return
+            const prev = pingSummaryCache.get(id)
+            if (!prev) {
+              pingSummaryCache.set(id, {
+                probes: [],
+                medianMs: null,
+                bestMs: null,
+                worstMs: null,
+                maxLoss: 0,
+                avgLoss: 0,
+                jitterMs: 0,
+                health: "empty",
+                error: true,
+              })
+            }
+          }
+        }
+      })
+      await Promise.all(workers)
+      if (active) {
+        setSummaries(new Map(pingSummaryCache))
+      }
+    }
+
+    fetchAll()
+    const timer = setInterval(() => {
+      if (!document.hidden) fetchAll()
+    }, 60_000)
+
+    const onVisible = () => {
+      if (!document.hidden) fetchAll()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+
+    return () => {
+      active = false
+      clearInterval(timer)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [enabled, nodeKey])
+
+  return summaries
+}
+

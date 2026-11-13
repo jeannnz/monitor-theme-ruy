@@ -19,7 +19,7 @@ import { SettingsDrawer } from "@/components/SettingsDrawer"
 import { Summary } from "@/components/Summary"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { api, groupsOf, useNodes } from "@/lib/api"
+import { api, groupsOf, useNodes, usePingSummaries } from "@/lib/api"
 import { defaultConfig, loadConfig, type ThemeConfig } from "@/lib/config"
 import { expiresIn, monthUsage, percent } from "@/lib/format"
 import { I18nProvider, useI18n } from "@/lib/i18n"
@@ -34,7 +34,7 @@ type Me = {
 }
 
 type StatusFilter = "all" | "online" | "offline" | "busy" | "expiring"
-type SortKey = "default" | "cpu" | "mem" | "disk" | "speed" | "traffic" | "expiry"
+type SortKey = "default" | "cpu" | "mem" | "disk" | "speed" | "ping" | "traffic" | "expiry"
 type ViewMode = "grid" | "compact" | "table" | "billing"
 
 const loadDetail = () => import("@/components/NodeDetail").then((m) => ({ default: m.NodeDetail }))
@@ -146,7 +146,17 @@ function DashboardApp({
   const [meError, setMeError] = useState("")
   const [dark, toggleTheme] = useTheme(config.default_theme)
   const { nodes, error, closed } = useNodes()
+  const pingSummaries = usePingSummaries(nodes, config.show_ping)
   const [openNodeId, goNode] = useNodeRoute()
+  const [detailTab, setDetailTab] = useState<"resources" | "latency">("resources")
+
+  const openNode = useCallback(
+    (id: number | null, tab: "resources" | "latency" = "resources") => {
+      setDetailTab(tab)
+      goNode(id)
+    },
+    [goNode],
+  )
 
   // Workspace UI States
   const [group, setGroup] = useState<string | null>(null)
@@ -273,6 +283,11 @@ function DashboardApp({
         const sb = b.online && b.metrics ? b.metrics.net_rx + b.metrics.net_tx : -1
         return sb - sa
       }
+      if (sortBy === "ping") {
+        const pa = pingSummaries.get(a.id)?.medianMs ?? 999999
+        const pb = pingSummaries.get(b.id)?.medianMs ?? 999999
+        return pa - pb
+      }
       if (sortBy === "traffic") {
         return monthUsage(b) - monthUsage(a)
       }
@@ -283,7 +298,7 @@ function DashboardApp({
       }
       return 0
     })
-  }, [groupNodes, search, statusFilter, sortBy])
+  }, [groupNodes, search, statusFilter, sortBy, pingSummaries])
 
   const siteName = me?.site_name || "Monitor"
 
@@ -355,18 +370,20 @@ function DashboardApp({
           ) : selectedNode ? (
             <Suspense fallback={<Skeleton className="h-96" />}>
               <NodeDetail
+                key={`${selectedNode.id}-${detailTab}`}
                 node={selectedNode}
                 nodes={sortedNodes}
                 historyDays={me.history_days ?? 7}
                 showBilling={config.show_billing}
-                onBack={() => goNode(null)}
-                onSelectNode={(id) => goNode(id)}
+                initialTab={detailTab}
+                onBack={() => openNode(null)}
+                onSelectNode={(id) => openNode(id, detailTab)}
               />
             </Suspense>
           ) : (
             <div className="vibe-card py-16 text-center text-sm text-muted-foreground">
               {tr("节点不存在或未公开。", "Node not found or not public.")}{" "}
-              <button className="font-medium text-primary underline" onClick={() => goNode(null)}>
+              <button className="font-medium text-primary underline" onClick={() => openNode(null)}>
                 {tr("返回看板首页", "Back to Dashboard")}
               </button>
             </div>
@@ -425,7 +442,7 @@ function DashboardApp({
               showKpi={config.show_kpi}
               showAnalytics={config.show_analytics}
               mapStyle={config.map_style}
-              onSelectNode={goNode}
+              onSelectNode={(id) => openNode(id)}
             />
 
             {/* Server Fleet Toolbar & List */}
@@ -506,6 +523,9 @@ function DashboardApp({
                       <option value="mem">{tr("排序：内存占用 ↓", "Sort: Memory ↓")}</option>
                       <option value="disk">{tr("排序：硬盘占用 ↓", "Sort: Disk ↓")}</option>
                       <option value="speed">{tr("排序：实时网速 ↓", "Sort: Speed ↓")}</option>
+                      {config.show_ping && (
+                        <option value="ping">{tr("排序：网络延迟 ↑", "Sort: Latency ↑")}</option>
+                      )}
                       <option value="traffic">{tr("排序：月流量 ↓", "Sort: Traffic ↓")}</option>
                       <option value="expiry">{tr("排序：到期时间 ↑", "Sort: Expiry ↑")}</option>
                     </select>
@@ -545,7 +565,7 @@ function DashboardApp({
 
               {/* Nodes / Billing Render */}
               {viewMode === "billing" ? (
-                <BillingView nodes={displayedNodes} onSelectNode={goNode} />
+                <BillingView nodes={displayedNodes} onSelectNode={(id) => openNode(id)} />
               ) : sortedNodes.length === 0 ? (
                 <div className="vibe-card py-16 text-center text-sm text-muted-foreground">
                   {tr("还没有添加任何服务器节点", "No server nodes have been added yet")}
@@ -568,7 +588,9 @@ function DashboardApp({
                 <ServerTable
                   nodes={displayedNodes}
                   showBilling={config.show_billing}
-                  onOpen={goNode}
+                  showPing={config.show_ping}
+                  pingSummaries={pingSummaries}
+                  onOpen={(id, tab) => openNode(id, tab ?? "resources")}
                 />
               ) : viewMode === "compact" ? (
                 <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -577,7 +599,10 @@ function DashboardApp({
                       key={n.id}
                       node={n}
                       showBilling={config.show_billing}
-                      onOpen={() => goNode(n.id)}
+                      showPing={config.show_ping}
+                      pingSummary={pingSummaries.get(n.id)}
+                      onOpen={() => openNode(n.id)}
+                      onOpenLatency={() => openNode(n.id, "latency")}
                     />
                   ))}
                 </div>
@@ -589,7 +614,10 @@ function DashboardApp({
                       node={n}
                       showSparkline={config.show_sparkline}
                       showBilling={config.show_billing}
-                      onOpen={() => goNode(n.id)}
+                      showPing={config.show_ping}
+                      pingSummary={pingSummaries.get(n.id)}
+                      onOpen={() => openNode(n.id)}
+                      onOpenLatency={() => openNode(n.id, "latency")}
                     />
                   ))}
                 </div>
