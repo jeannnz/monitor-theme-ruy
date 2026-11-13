@@ -2,7 +2,7 @@
   "name": "Vibe",
   "short": "vibe",
   "description": "高密度多维度趋势矩阵探针监控主题",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "jeannnz",
   "url": "https://github.com/jeannnz/monitor-theme-vibe",
   "config": [

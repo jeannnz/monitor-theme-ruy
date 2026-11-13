@@ -35,6 +35,7 @@ https://github.com/jeannnz/monitor-theme-vibe
 | `show_analytics` | `boolean` | `true` | 是否显示右半屏全球节点与集群状态 |
 | `map_style` | `select` | `"globe"` | 全球节点默认视图：`globe`（3D 地球）/ `dotted`（点阵图） |
 | `show_sparkline` | `boolean` | `true` | 节点卡片内是否显示实时网速折线 |
+| `show_ping` | `boolean` | `true` | 节点卡片、紧凑卡片与表格中是否显示延迟趋势与健康度 |
 | `show_billing` | `boolean` | `true` | 是否显示资费、到期倒计时与账单视图 |
 | `footer_text` | `string` | `""` | 页脚附加文案 |
 
